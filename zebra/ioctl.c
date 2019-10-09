@@ -168,6 +168,40 @@ if_get_mtu (struct interface *ifp)
 #endif
 }
 
+/* set interface MTU */
+int
+if_set_mtu (struct interface *ifp)
+{
+  struct ifreq ifreq;
+
+  ifreq_set_name (&ifreq, ifp);
+  ifreq.ifr_mtu = ifp->mtu;
+
+#if defined(SIOCGIFMTU)
+  if (if_ioctl (SIOCSIFMTU, (caddr_t) & ifreq) < 0)
+    {
+      zlog_info ("Can't configure mtu by ioctl(SIOCSIFMTU)");
+      ifp->mtu6 = ifp->mtu = -1;
+      return -1;
+    }
+
+#ifdef SUNOS_5
+  ifp->mtu6 = ifp->mtu = ifreq.ifr_metric;
+#else
+  ifp->mtu6 = ifp->mtu = ifreq.ifr_mtu;
+#endif /* SUNOS_5 */
+
+  /* propogate */
+  zebra_interface_up_update(ifp);
+
+#else
+  zlog (NULL, LOG_INFO, "Can't lookup mtu on this system");
+  ifp->mtu6 = ifp->mtu = -1;
+#endif
+
+  return 0;
+}
+
 #ifdef HAVE_NETLINK
 /* Interface address setting via netlink interface. */
 int

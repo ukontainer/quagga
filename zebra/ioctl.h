@@ -36,6 +36,7 @@ extern int if_unset_prefix (struct interface *, struct connected *);
 
 extern void if_get_metric (struct interface *);
 extern void if_get_mtu (struct interface *);
+extern int if_set_mtu (struct interface *);
 
 #ifdef HAVE_IPV6
 extern int if_prefix_add_ipv6 (struct interface *, struct connected *);

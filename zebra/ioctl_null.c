@@ -59,6 +59,7 @@ void if_get_flags (struct interface *a) { return; }
 #ifdef HAVE_SYS_WEAK_ALIAS_PRAGMA
 #pragma weak if_get_metric = if_get_flags
 #pragma weak if_get_mtu = if_get_flags
+#pragma weak if_set_mtu = if_get_flags
 #else
 /* void if_get_metric (struct interface *a) { return; } */
 /* void if_get_mtu (struct interface *a) { return; } */

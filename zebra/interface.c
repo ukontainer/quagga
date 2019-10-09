@@ -1363,6 +1363,90 @@ DEFUN (no_multicast,
   return CMD_SUCCESS;
 }
 
+DEFUN (mtu,
+       mtu_cmd,
+       "mtu <68-65500>",
+       "Set mtu to interface\n")
+{
+  int ret;
+  struct interface *ifp;
+  unsigned int mtu;
+
+  ifp = (struct interface *) vty->index;
+  mtu = strtol(argv[0], NULL, 10);
+
+  /* mtu range is <68-65500> */
+  if (mtu < 67 || mtu > 65500)
+    {
+    vty_out (vty, "mtu is invalid%s", VTY_NEWLINE);
+    return CMD_WARNING;
+    }
+
+  if (CHECK_FLAG (ifp->status, ZEBRA_INTERFACE_ACTIVE))
+    {
+      ifp->mtu = mtu;
+      ret = if_set_mtu (ifp);
+      if (ret < 0)
+	{
+	  vty_out (vty, "Can't set mtu flag%s", VTY_NEWLINE);
+	  return CMD_WARNING;
+	}
+      if_refresh (ifp);
+    }
+
+  return CMD_SUCCESS;
+}
+
+ALIAS (mtu,
+       ipv6_mtu_cmd,
+       "ipv6 mtu <68-65500>",
+       "Set mtu to interface\n")
+
+ALIAS (mtu,
+       ip_mtu_cmd,
+       "ip mtu <68-65500>",
+       "Set mtu to interface\n")
+
+DEFUN (no_mtu,
+       no_mtu_cmd,
+       "no mtu",
+       NO_STR
+       "Unset mtu to interface\n")
+{
+  int ret;
+  struct interface *ifp;
+
+  ifp = (struct interface *) vty->index;
+  if (CHECK_FLAG (ifp->status, ZEBRA_INTERFACE_ACTIVE))
+    {
+      ifp->mtu = 1500;
+      ret = if_set_mtu (ifp);
+      if (ret < 0)
+	{
+	  vty_out (vty, "Can't unset mtu flag%s", VTY_NEWLINE);
+	  return CMD_WARNING;
+	}
+      if_refresh (ifp);
+    }
+
+  return CMD_SUCCESS;
+}
+
+ALIAS (no_mtu,
+       no_ip_mtu_cmd,
+       "no ip mtu",
+       NO_STR
+       "Interface IPv4 config commands\n"
+       "Unset mtu to interface\n")
+
+ALIAS (no_mtu,
+       no_ipv6_mtu_cmd,
+       "no ipv6 mtu",
+       NO_STR
+       "Interface IPv6 config commands\n"
+       "Unset mtu to interface\n")
+
+
 /* Hacky: create a dummy node just to hang a config-writer callback off it */
 static struct cmd_node zebra_if_defaults_node = {
   ZEBRA_IF_DEFAULTS_NODE,
@@ -2405,6 +2489,22 @@ DEFUN (ip_address,
   return ip_address_install (vty, vty->index, argv[0], NULL, NULL);
 }
 
+DEFUN (ip_address_mask,
+       ip_address_mask_cmd,
+       "ip address A.B.C.D A.B.C.D",
+       "Interface Internet Protocol config commands\n"
+       "Set the IP address of an interface\n"
+       "IP address (e.g. 10.0.0.1)\n"
+       "netmask(e.g. 255.255.255.0)\n")
+{
+  struct in_addr mask;
+  char buf[64];
+
+  mask.s_addr = inet_addr(argv[1]);
+  sprintf (buf, "%s/%d", argv[0], ip_masklen(mask));
+  return ip_address_install (vty, vty->index, buf, NULL, NULL);
+}
+
 DEFUN (no_ip_address,
        no_ip_address_cmd,
        "no ip address A.B.C.D/M",
@@ -2414,6 +2514,23 @@ DEFUN (no_ip_address,
        "IP Address (e.g. 10.0.0.1/8)")
 {
   return ip_address_uninstall (vty, vty->index, argv[0], NULL, NULL);
+}
+
+DEFUN (no_ip_address_mask,
+       no_ip_address_mask_cmd,
+       "no ip address A.B.C.D A.B.C.D",
+       NO_STR
+       "Interface Internet Protocol config commands\n"
+       "Set the IP address of an interface\n"
+       "IP address (e.g. 10.0.0.1)\n"
+       "netmask(e.g. 255.255.255.0)\n")
+{
+  struct in_addr mask;
+  char buf[64];
+
+  mask.s_addr = inet_addr(argv[1]);
+  sprintf (buf, "%s/%d", argv[0], ip_masklen(mask));
+  return ip_address_uninstall (vty, vty->index, buf, NULL, NULL);
 }
 
 #ifdef HAVE_NETLINK
@@ -2780,6 +2897,14 @@ zebra_if_init (void)
   install_element (INTERFACE_NODE, &no_bandwidth_if_val_cmd);
   install_element (INTERFACE_NODE, &ip_address_cmd);
   install_element (INTERFACE_NODE, &no_ip_address_cmd);
+  install_element (INTERFACE_NODE, &ip_address_mask_cmd);
+  install_element (INTERFACE_NODE, &no_ip_address_mask_cmd);
+  install_element (INTERFACE_NODE, &mtu_cmd);
+  install_element (INTERFACE_NODE, &no_mtu_cmd);
+  install_element (INTERFACE_NODE, &ip_mtu_cmd);
+  install_element (INTERFACE_NODE, &no_ip_mtu_cmd);
+  install_element (INTERFACE_NODE, &ipv6_mtu_cmd);
+  install_element (INTERFACE_NODE, &no_ipv6_mtu_cmd);
 #ifdef HAVE_IPV6
   install_element (INTERFACE_NODE, &ipv6_address_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_address_cmd);
