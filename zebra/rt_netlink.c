@@ -271,8 +271,8 @@ netlink_request (int family, int type, struct nlsock *nl)
    to the given function. */
 static int
 netlink_parse_info (int (*filter) (struct sockaddr_nl *, struct nlmsghdr *,
-                                   vrf_id_t),
-                    struct nlsock *nl, struct zebra_vrf *zvrf)
+                                   vrf_id_t, void *),
+                    struct nlsock *nl, struct zebra_vrf *zvrf, void *filter_arg)
 {
   int status;
   int ret = 0;
@@ -401,7 +401,7 @@ netlink_parse_info (int (*filter) (struct sockaddr_nl *, struct nlmsghdr *,
               continue;
             }
 
-          error = (*filter) (&snl, h, zvrf->vrf_id);
+          error = (*filter) (&snl, h, zvrf->vrf_id, filter_arg);
           if (error < 0)
             {
               zlog (NULL, LOG_ERR, "%s filter function error", nl->name);
@@ -537,7 +537,7 @@ netlink_to_zebra_link_type (unsigned int hwt)
    during bootstrap. */
 static int
 netlink_interface (struct sockaddr_nl *snl, struct nlmsghdr *h,
-    vrf_id_t vrf_id)
+    vrf_id_t vrf_id, void *arg)
 {
   int len;
   struct ifinfomsg *ifi;
@@ -591,7 +591,7 @@ netlink_interface (struct sockaddr_nl *snl, struct nlmsghdr *h,
 /* Lookup interface IPv4/IPv6 address. */
 static int
 netlink_interface_addr (struct sockaddr_nl *snl, struct nlmsghdr *h,
-    vrf_id_t vrf_id)
+    vrf_id_t vrf_id, void *arg)
 {
   int len;
   struct ifaddrmsg *ifa;
@@ -727,7 +727,7 @@ netlink_interface_addr (struct sockaddr_nl *snl, struct nlmsghdr *h,
 /* Looking up routing table by netlink interface. */
 static int
 netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
-    vrf_id_t vrf_id)
+    vrf_id_t vrf_id, void *arg)
 {
   int len;
   struct rtmsg *rtm;
@@ -1236,7 +1236,7 @@ netlink_link_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
 
 static int
 netlink_information_fetch (struct sockaddr_nl *snl, struct nlmsghdr *h,
-    vrf_id_t vrf_id)
+    vrf_id_t vrf_id, void *arg)
 {
   /* JF: Ignore messages that aren't from the kernel */
   if ( snl->nl_pid != 0 )
@@ -1260,10 +1260,10 @@ netlink_information_fetch (struct sockaddr_nl *snl, struct nlmsghdr *h,
       return netlink_link_change (snl, h, vrf_id);
       break;
     case RTM_NEWADDR:
-      return netlink_interface_addr (snl, h, vrf_id);
+      return netlink_interface_addr (snl, h, vrf_id, NULL);
       break;
     case RTM_DELADDR:
-      return netlink_interface_addr (snl, h, vrf_id);
+      return netlink_interface_addr (snl, h, vrf_id, NULL);
       break;
     default:
       zlog_warn ("Unknown netlink nlmsg_type %d vrf %u\n", h->nlmsg_type,
@@ -1283,7 +1283,7 @@ interface_lookup_netlink (struct zebra_vrf *zvrf)
   ret = netlink_request (AF_PACKET, RTM_GETLINK, &zvrf->netlink_cmd);
   if (ret < 0)
     return ret;
-  ret = netlink_parse_info (netlink_interface, &zvrf->netlink_cmd, zvrf);
+  ret = netlink_parse_info (netlink_interface, &zvrf->netlink_cmd, zvrf, NULL);
   if (ret < 0)
     return ret;
 
@@ -1291,7 +1291,7 @@ interface_lookup_netlink (struct zebra_vrf *zvrf)
   ret = netlink_request (AF_INET, RTM_GETADDR, &zvrf->netlink_cmd);
   if (ret < 0)
     return ret;
-  ret = netlink_parse_info (netlink_interface_addr, &zvrf->netlink_cmd, zvrf);
+  ret = netlink_parse_info (netlink_interface_addr, &zvrf->netlink_cmd, zvrf, NULL);
   if (ret < 0)
     return ret;
 
@@ -1300,7 +1300,7 @@ interface_lookup_netlink (struct zebra_vrf *zvrf)
   ret = netlink_request (AF_INET6, RTM_GETADDR, &zvrf->netlink_cmd);
   if (ret < 0)
     return ret;
-  ret = netlink_parse_info (netlink_interface_addr, &zvrf->netlink_cmd, zvrf);
+  ret = netlink_parse_info (netlink_interface_addr, &zvrf->netlink_cmd, zvrf, NULL);
   if (ret < 0)
     return ret;
 #endif /* HAVE_IPV6 */
@@ -1319,7 +1319,7 @@ netlink_route_read (struct zebra_vrf *zvrf)
   ret = netlink_request (AF_INET, RTM_GETROUTE, &zvrf->netlink_cmd);
   if (ret < 0)
     return ret;
-  ret = netlink_parse_info (netlink_routing_table, &zvrf->netlink_cmd, zvrf);
+  ret = netlink_parse_info (netlink_routing_table, &zvrf->netlink_cmd, zvrf, NULL);
   if (ret < 0)
     return ret;
 
@@ -1328,7 +1328,7 @@ netlink_route_read (struct zebra_vrf *zvrf)
   ret = netlink_request (AF_INET6, RTM_GETROUTE, &zvrf->netlink_cmd);
   if (ret < 0)
     return ret;
-  ret = netlink_parse_info (netlink_routing_table, &zvrf->netlink_cmd, zvrf);
+  ret = netlink_parse_info (netlink_routing_table, &zvrf->netlink_cmd, zvrf, NULL);
   if (ret < 0)
     return ret;
 #endif /* HAVE_IPV6 */
@@ -1403,7 +1403,7 @@ addattr32 (struct nlmsghdr *n, size_t maxlen, int type, int data)
 
 static int
 netlink_talk_filter (struct sockaddr_nl *snl, struct nlmsghdr *h,
-    vrf_id_t vrf_id)
+    vrf_id_t vrf_id, void *arg)
 {
   zlog_warn ("netlink_talk: ignoring message type 0x%04x vrf %u", h->nlmsg_type,
              vrf_id);
@@ -1461,7 +1461,7 @@ netlink_talk (struct nlmsghdr *n, struct nlsock *nl, struct zebra_vrf *zvrf)
    * Get reply from netlink socket. 
    * The reply should either be an acknowlegement or an error.
    */
-  return netlink_parse_info (netlink_talk_filter, nl, zvrf);
+  return netlink_parse_info (netlink_talk_filter, nl, zvrf, NULL);
 }
 
 /* This function takes a nexthop as argument and adds
@@ -1950,6 +1950,123 @@ kernel_address_delete_ipv4 (struct interface *ifp, struct connected *ifc)
 }
 
 
+/* clear arp cache */
+struct neigh_entry
+{
+	struct ndmsg ndm;
+	struct in_addr dst;
+};
+
+struct list *ndm_list;
+
+#ifndef NDA_RTA
+#define NDA_RTA(r) \
+	((struct rtattr*)(((char*)(r)) + NLMSG_ALIGN(sizeof(struct ndmsg))))
+#endif
+
+static int
+netlink_neighbor (struct sockaddr_nl *snl, struct nlmsghdr *h,
+		  vrf_id_t vrf_id, void *ifname)
+{
+	int len;
+	struct ndmsg *ndm;
+	struct neigh_entry *nd_entry;
+	struct interface *ifp;
+	struct rtattr *tb[NDA_MAX+1];
+	struct in_addr dst;
+
+	ndm = NLMSG_DATA (h);
+
+	if (h->nlmsg_type != RTM_NEWNEIGH)
+		return 0;
+
+	len = h->nlmsg_len - NLMSG_LENGTH (sizeof (struct ndmsg));
+	if (len < 0)
+		return -1;
+
+	memset (tb, 0, sizeof tb);
+	netlink_parse_rtattr (tb, NDA_MAX, NDA_RTA (ndm), len);
+
+	/* Looking up interface name. */
+	ifp = if_lookup_by_name_vrf (ifname, vrf_id);
+	if (!ifp) {
+		zlog_warn ("%s: no such interface %s", __func__, (char *)ifname);
+		return -1;
+	}
+
+	if (ndm->ndm_ifindex == ifp->ifindex) {
+		nd_entry = XMALLOC (MTYPE_TMP, sizeof(struct neigh_entry));
+		memcpy(&nd_entry->ndm, ndm, sizeof(struct ndmsg));
+		if (tb[NDA_DST]) {
+			memcpy(&nd_entry->dst, RTA_DATA(tb[NDA_DST]), sizeof(struct in_addr));
+		}
+		zlog_warn ("%s: found entry (dst=%s, idx=%d,%s)",
+			   __func__, inet_ntoa(nd_entry->dst),
+			   ifp->ifindex, ifp->name);
+		listnode_add(ndm_list, nd_entry);
+	}
+
+	return 0;
+}
+
+int
+netlink_clear_neigh_cache (struct zebra_vrf *zvrf, char *ifname)
+{
+
+	int ret;
+	struct listnode *node, *next;
+	struct neigh_entry *nd_entry;
+
+	/* Get neighbor table information. */
+	ret = netlink_request (AF_INET, RTM_GETNEIGH, &zvrf->netlink_cmd);
+	if (ret < 0)
+		return ret;
+	ret = netlink_parse_info (netlink_neighbor, &zvrf->netlink_cmd,
+				  zvrf, ifname);
+	if (ret < 0)
+		return ret;
+
+	for (ALL_LIST_ELEMENTS (ndm_list, node, next, nd_entry)) {
+		/* Delete an entry */
+		struct {
+			struct nlmsghdr n;
+			struct ndmsg r;
+			char buf[1024];
+		} req = {
+			.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ndmsg)),
+			.n.nlmsg_type = RTM_DELNEIGH,
+			.n.nlmsg_flags = NLM_F_REQUEST,
+			.r.ndm_family = nd_entry->ndm.ndm_family,
+			.r.ndm_ifindex = nd_entry->ndm.ndm_ifindex,
+			.r.ndm_state = nd_entry->ndm.ndm_state,
+
+		};
+		int err, addr_sz;
+
+		if (nd_entry->ndm.ndm_family == AF_INET)
+			addr_sz = 4;
+		else if (nd_entry->ndm.ndm_family == AF_INET6)
+			addr_sz = 16;
+		else {
+			printf("Bad address family: %d\n", nd_entry->ndm.ndm_family);
+			return -1;
+		}
+
+
+		// create the IP attribute
+		addattr_l(&req.n, sizeof(req), NDA_DST, &nd_entry->dst, addr_sz);
+
+		err = netlink_talk (&req.n, &zvrf->netlink_cmd, zvrf);
+		if (err < 0)
+			zlog_warn ("netlink talk err");
+
+		listnode_delete(ndm_list, nd_entry);
+		XFREE (MTYPE_TMP, nd_entry);
+	}
+	return 0;
+}
+
+
 extern struct thread_master *master;
 
 /* Kernel route reflection. */
@@ -1957,7 +2074,7 @@ static int
 kernel_read (struct thread *thread)
 {
   struct zebra_vrf *zvrf = (struct zebra_vrf *)THREAD_ARG (thread);
-  netlink_parse_info (netlink_information_fetch, &zvrf->netlink, zvrf);
+  netlink_parse_info (netlink_information_fetch, &zvrf->netlink, zvrf, NULL);
   zvrf->t_netlink = thread_add_read (zebrad.master, kernel_read, zvrf,
                                      zvrf->netlink.sock);
 
@@ -2030,6 +2147,8 @@ kernel_init (struct zebra_vrf *zvrf)
       zvrf->t_netlink = thread_add_read (zebrad.master, kernel_read, zvrf,
                                          zvrf->netlink.sock);
     }
+
+  ndm_list = list_new ();
 }
 
 void

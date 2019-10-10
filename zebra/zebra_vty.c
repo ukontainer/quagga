@@ -5162,6 +5162,28 @@ DEFUN (show_ipv6_route_summary_prefix_vrf_all,
   return CMD_SUCCESS;
 }
 
+DEFUN (clear_arp_cache_interface,
+       clear_arp_cache_interface_cmd,
+       "clear arp-cache interface INTERFACE",
+       CLEAR_STR
+       "arp\n"
+       "interface\n"
+       "interface name\n")
+{
+  struct zebra_vrf *zvrf;
+  vrf_iter_t iter;
+
+  for (iter = vrf_first (); iter != VRF_ITER_INVALID; iter = vrf_next (iter))
+    {
+      if ((zvrf = vrf_iter2info (iter)) == NULL)
+	      continue;
+
+      netlink_clear_neigh_cache(zvrf, argv[0]);
+      return CMD_SUCCESS;
+    }
+
+}
+
 /* Write IPv6 static route configuration. */
 static int
 static_config_ipv6 (struct vty *vty)
@@ -5525,4 +5547,6 @@ zebra_vty_init (void)
 
   install_element (VIEW_NODE, &show_ipv6_mroute_vrf_all_cmd);
   install_element (ENABLE_NODE, &show_ipv6_mroute_vrf_all_cmd);
+
+  install_element (ENABLE_NODE, &clear_arp_cache_interface_cmd);
 }
