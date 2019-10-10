@@ -29,9 +29,13 @@
 #include "rib.h"
 #include "vrf.h"
 #include "nexthop.h"
+#include "privs.h"
+#include "rt_netlink.h"
 
 #include "zebra/zserv.h"
 #include "zebra/zebra_rnh.h"
+
+extern struct zebra_privs_t zserv_privs;
 
 static int do_show_ip_route(struct vty *vty, safi_t safi, vrf_id_t vrf_id);
 static void vty_show_ip_route_detail (struct vty *vty, struct route_node *rn,
@@ -5178,10 +5182,81 @@ DEFUN (clear_arp_cache_interface,
       if ((zvrf = vrf_iter2info (iter)) == NULL)
 	      continue;
 
-      netlink_clear_neigh_cache(zvrf, argv[0]);
-      return CMD_SUCCESS;
+      netlink_clear_neigh_cache(zvrf, (char *)argv[0]);
     }
 
+  return CMD_SUCCESS;
+}
+
+#include <netinet/ip.h>
+#include <netinet/ip_icmp.h>
+static int
+zebra_send_icmp_lazy(char *dst, int count, unsigned long size)
+{
+	struct icmphdr *icmph;
+	char buf[256];
+	unsigned long ntx = 0;
+	struct sockaddr_in whereto;
+	struct iovec iov[1];
+	struct msghdr m;
+	int ret, icmp_sock;
+
+	if ( zserv_privs.change (ZPRIVS_RAISE) )
+		zlog_err ("icmp_sock: could not raise privs, %s",
+			  safe_strerror (errno) );
+
+	icmp_sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+	if (icmp_sock < 0) {
+		zlog_warn ("icmp_sock err %s", strerror(errno));
+	}
+
+	if ( zserv_privs.change (ZPRIVS_LOWER) )
+		zlog_err ("icmp_sock: could not lower privs, %s",
+			  safe_strerror (errno) );
+
+	icmph = (struct icmphdr *)buf;
+	icmph->type = ICMP_ECHO;
+	icmph->code = 0;
+	icmph->checksum = 0;
+	icmph->un.echo.sequence = htons(ntx++);
+	icmph->un.echo.id = htons(3939 & 0xFFFF);
+
+	/* destination */
+	whereto.sin_family = AF_INET;
+	inet_aton(dst, &whereto.sin_addr);
+
+	iov[0].iov_base = buf;
+	iov[0].iov_len = size + 8;
+	memset (&m, 0, sizeof(m));
+	m.msg_iov = iov;
+	m.msg_iovlen = 1;
+	m.msg_name = &whereto;
+	m.msg_namelen = sizeof(whereto);
+
+	do {
+		ret = sendmsg(icmp_sock, &m, 0);
+		if (ret < 0) {
+			zlog_warn ("sendmsg err %s", strerror(errno));
+		}
+		icmph->un.echo.sequence = htons(ntx++);
+	} while (--count);
+
+	close(icmp_sock);
+
+	return 0;
+}
+
+DEFUN (ping,
+       ping_cmd,
+       "ping A.B.C.D <1-10> <64-9000>",
+       "send ICMP echo request packet\n"
+       "destination IPv4 address\n"
+       "send count\n"
+       "datagram size\n")
+{
+
+  zebra_send_icmp_lazy((char *)argv[0], atoi(argv[1]), atoi(argv[2]));
+  return CMD_SUCCESS;
 }
 
 /* Write IPv6 static route configuration. */
@@ -5549,4 +5624,5 @@ zebra_vty_init (void)
   install_element (ENABLE_NODE, &show_ipv6_mroute_vrf_all_cmd);
 
   install_element (ENABLE_NODE, &clear_arp_cache_interface_cmd);
+  install_element (ENABLE_NODE, &ping_cmd);
 }
