@@ -5188,6 +5188,108 @@ DEFUN (clear_arp_cache_interface,
   return CMD_SUCCESS;
 }
 
+static int parse_mac_str(char *mac_str, char mac[ETH_ALEN])
+{
+	char delim[] = ".";
+	char *saveptr = NULL, *token = NULL;
+	int i = 0;
+
+	if (!mac_str)
+		return 0;
+
+	for (token = strtok_r(mac_str, delim, &saveptr);
+	     i < ETH_ALEN; i++) {
+		if (!token) {
+			/* The address is too short */
+			return -1;
+		}
+
+		short tmp = (short) strtol(token, NULL, 16);
+		mac[i++] = tmp >> 8;
+		mac[i] = tmp & 0x00FF;
+		token = strtok_r(NULL, delim, &saveptr);
+	}
+
+	if (strtok_r(NULL, delim, &saveptr)) {
+		/* The address is too long */
+		return -1;
+	}
+
+	return 1;
+}
+
+DEFUN (arp,
+       arp_cmd,
+       "arp A.B.C.D XXXX.YYYY.ZZZZ arpa",
+       "arp table operation\n"
+       IP_STR
+       "destination ethernet address\n"
+       "arpa\n")
+{
+	struct zebra_vrf *zvrf;
+	vrf_iter_t iter;
+	struct neigh_entry nd_entry;
+	struct interface *ifp;
+
+	memset(&nd_entry, 0, sizeof(struct neigh_entry));
+	nd_entry.ndm.ndm_family = AF_INET;
+	inet_pton(AF_INET, argv[0], &nd_entry.dst);
+	parse_mac_str((char *)argv[1], nd_entry.lladdr);
+	nd_entry.ndm.ndm_state = NUD_PERMANENT;
+
+	ifp = if_lookup_address(nd_entry.dst);
+	if (!ifp) {
+		zlog_warn ("no match interface: %s", argv[0]);
+		return CMD_WARNING;
+	}
+	nd_entry.ndm.ndm_ifindex = ifp->ifindex;
+
+
+	for (iter = vrf_first (); iter != VRF_ITER_INVALID; iter = vrf_next (iter)) {
+		if ((zvrf = vrf_iter2info (iter)) == NULL)
+			continue;
+
+		netlink_neighbor_modify(zvrf, RTM_NEWNEIGH, &nd_entry);
+	}
+
+	return CMD_SUCCESS;
+}
+
+DEFUN (no_arp,
+       no_arp_cmd,
+       "no arp A.B.C.D XXXX.YYYY.ZZZZ arpa",
+       NO_STR
+       "arp table operation\n"
+       IP_STR
+       "destination ethernet address\n"
+       "arpa\n")
+{
+	struct zebra_vrf *zvrf;
+	vrf_iter_t iter;
+	struct neigh_entry nd_entry;
+	struct interface *ifp;
+
+	memset(&nd_entry, 0, sizeof(struct neigh_entry));
+	nd_entry.ndm.ndm_family = AF_INET;
+	inet_pton(AF_INET, argv[0], &nd_entry.dst);
+
+	ifp = if_lookup_address(nd_entry.dst);
+	if (!ifp) {
+		zlog_warn ("no match interface: %s", argv[0]);
+		return CMD_WARNING;
+	}
+	nd_entry.ndm.ndm_ifindex = ifp->ifindex;
+
+	for (iter = vrf_first (); iter != VRF_ITER_INVALID; iter = vrf_next (iter)) {
+		if ((zvrf = vrf_iter2info (iter)) == NULL)
+			continue;
+
+		netlink_neighbor_modify(zvrf, RTM_DELNEIGH, &nd_entry);
+	}
+
+	return CMD_SUCCESS;
+}
+
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
 static int
@@ -5624,5 +5726,7 @@ zebra_vty_init (void)
   install_element (ENABLE_NODE, &show_ipv6_mroute_vrf_all_cmd);
 
   install_element (ENABLE_NODE, &clear_arp_cache_interface_cmd);
+  install_element (CONFIG_NODE, &arp_cmd);
+  install_element (CONFIG_NODE, &no_arp_cmd);
   install_element (ENABLE_NODE, &ping_cmd);
 }

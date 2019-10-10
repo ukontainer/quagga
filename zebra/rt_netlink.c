@@ -1950,19 +1950,58 @@ kernel_address_delete_ipv4 (struct interface *ifp, struct connected *ifc)
 }
 
 
-/* clear arp cache */
-struct neigh_entry
-{
-	struct ndmsg ndm;
-	struct in_addr dst;
-};
-
+/* arp cache operations */
 struct list *ndm_list;
 
 #ifndef NDA_RTA
 #define NDA_RTA(r) \
 	((struct rtattr*)(((char*)(r)) + NLMSG_ALIGN(sizeof(struct ndmsg))))
 #endif
+
+int
+netlink_neighbor_modify (struct zebra_vrf *zvrf, int cmd,
+			 struct neigh_entry *nd_entry)
+{
+	int err, addr_sz;
+
+	struct {
+		struct nlmsghdr n;
+		struct ndmsg r;
+		char buf[1024];
+	} req = {
+		.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ndmsg)),
+		.n.nlmsg_type = cmd,
+		.n.nlmsg_flags = NLM_F_REQUEST,
+		.r.ndm_family = nd_entry->ndm.ndm_family,
+		.r.ndm_ifindex = nd_entry->ndm.ndm_ifindex,
+		.r.ndm_state = nd_entry->ndm.ndm_state,
+
+	};
+	if (cmd == RTM_NEWNEIGH)
+		req.n.nlmsg_flags |= NLM_F_CREATE|NLM_F_REPLACE;
+
+	if (nd_entry->ndm.ndm_family == AF_INET)
+		addr_sz = 4;
+	else if (nd_entry->ndm.ndm_family == AF_INET6)
+		addr_sz = 16;
+	else {
+		printf("Bad address family: %d\n", nd_entry->ndm.ndm_family);
+		return -1;
+	}
+
+
+	// create the IP attribute
+	addattr_l(&req.n, sizeof(req), NDA_DST, &nd_entry->dst, addr_sz);
+	/* ll addr */
+	addattr_l(&req.n, sizeof(req), NDA_LLADDR, nd_entry->lladdr,
+		  sizeof(nd_entry->lladdr));
+
+	err = netlink_talk (&req.n, &zvrf->netlink_cmd, zvrf);
+	if (err < 0)
+		zlog_warn ("netlink talk err");
+
+	return 0;
+}
 
 static int
 netlink_neighbor (struct sockaddr_nl *snl, struct nlmsghdr *h,
@@ -1973,7 +2012,6 @@ netlink_neighbor (struct sockaddr_nl *snl, struct nlmsghdr *h,
 	struct neigh_entry *nd_entry;
 	struct interface *ifp;
 	struct rtattr *tb[NDA_MAX+1];
-	struct in_addr dst;
 
 	ndm = NLMSG_DATA (h);
 
@@ -1995,7 +2033,8 @@ netlink_neighbor (struct sockaddr_nl *snl, struct nlmsghdr *h,
 	}
 
 	if (ndm->ndm_ifindex == ifp->ifindex) {
-		nd_entry = XMALLOC (MTYPE_TMP, sizeof(struct neigh_entry));
+		nd_entry = XCALLOC (MTYPE_TMP, sizeof(struct neigh_entry));
+
 		memcpy(&nd_entry->ndm, ndm, sizeof(struct ndmsg));
 		if (tb[NDA_DST]) {
 			memcpy(&nd_entry->dst, RTA_DATA(tb[NDA_DST]), sizeof(struct in_addr));
@@ -2028,37 +2067,7 @@ netlink_clear_neigh_cache (struct zebra_vrf *zvrf, char *ifname)
 
 	for (ALL_LIST_ELEMENTS (ndm_list, node, next, nd_entry)) {
 		/* Delete an entry */
-		struct {
-			struct nlmsghdr n;
-			struct ndmsg r;
-			char buf[1024];
-		} req = {
-			.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct ndmsg)),
-			.n.nlmsg_type = RTM_DELNEIGH,
-			.n.nlmsg_flags = NLM_F_REQUEST,
-			.r.ndm_family = nd_entry->ndm.ndm_family,
-			.r.ndm_ifindex = nd_entry->ndm.ndm_ifindex,
-			.r.ndm_state = nd_entry->ndm.ndm_state,
-
-		};
-		int err, addr_sz;
-
-		if (nd_entry->ndm.ndm_family == AF_INET)
-			addr_sz = 4;
-		else if (nd_entry->ndm.ndm_family == AF_INET6)
-			addr_sz = 16;
-		else {
-			printf("Bad address family: %d\n", nd_entry->ndm.ndm_family);
-			return -1;
-		}
-
-
-		// create the IP attribute
-		addattr_l(&req.n, sizeof(req), NDA_DST, &nd_entry->dst, addr_sz);
-
-		err = netlink_talk (&req.n, &zvrf->netlink_cmd, zvrf);
-		if (err < 0)
-			zlog_warn ("netlink talk err");
+		netlink_neighbor_modify(zvrf, RTM_DELNEIGH, nd_entry);
 
 		listnode_delete(ndm_list, nd_entry);
 		XFREE (MTYPE_TMP, nd_entry);

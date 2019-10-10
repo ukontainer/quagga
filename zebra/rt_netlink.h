@@ -44,7 +44,17 @@ nl_rtproto_to_str (u_char rtproto);
 
 extern int interface_lookup_netlink (struct zebra_vrf *zvrf);
 extern int netlink_route_read (struct zebra_vrf *zvrf);
+
+struct neigh_entry
+{
+	struct ndmsg ndm;
+	struct in_addr dst;	/* XXX: v6 support ? */
+	char lladdr[ETH_ALEN];		/* XXX: non-ether support */
+};
+
 extern int netlink_clear_neigh_cache (struct zebra_vrf *zvrf, char *ifname);
+extern int netlink_neighbor_modify (struct zebra_vrf *zvrf, int cmd,
+				    struct neigh_entry *nd_entry);
 
 #endif /* HAVE_NETLINK */
 
