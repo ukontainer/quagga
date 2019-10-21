@@ -5291,17 +5291,18 @@ DEFUN (no_arp,
 }
 
 #include <netinet/ip.h>
-#include <netinet/ip_icmp.h>
+#include <linux/icmp.h>
 static int
 zebra_send_icmp_lazy(char *dst, int count, unsigned long size)
 {
 	struct icmphdr *icmph;
-	char buf[256];
+	char sbuf[256], rbuf[256];
 	unsigned long ntx = 0;
 	struct sockaddr_in whereto;
 	struct iovec iov[1];
 	struct msghdr m;
 	int ret, icmp_sock;
+	static int delta = 10;
 
 	if ( zserv_privs.change (ZPRIVS_RAISE) )
 		zlog_err ("icmp_sock: could not raise privs, %s",
@@ -5312,11 +5313,19 @@ zebra_send_icmp_lazy(char *dst, int count, unsigned long size)
 		zlog_warn ("icmp_sock err %s", strerror(errno));
 	}
 
+	struct icmp_filter filt;
+	filt.data = ~((1<<ICMP_SOURCE_QUENCH)|
+		      (1<<ICMP_REDIRECT)|
+		      (1<<ICMP_ECHOREPLY));
+	if (setsockopt(icmp_sock, SOL_RAW, ICMP_FILTER,
+		       (char*)&filt, sizeof(filt)) == -1)
+		zlog_warn ("setsockopt err %s", strerror(errno));
+
 	if ( zserv_privs.change (ZPRIVS_LOWER) )
 		zlog_err ("icmp_sock: could not lower privs, %s",
 			  safe_strerror (errno) );
 
-	icmph = (struct icmphdr *)buf;
+	icmph = (struct icmphdr *)sbuf;
 	icmph->type = ICMP_ECHO;
 	icmph->code = 0;
 	icmph->checksum = 0;
@@ -5327,7 +5336,7 @@ zebra_send_icmp_lazy(char *dst, int count, unsigned long size)
 	whereto.sin_family = AF_INET;
 	inet_aton(dst, &whereto.sin_addr);
 
-	iov[0].iov_base = buf;
+	iov[0].iov_base = sbuf;
 	iov[0].iov_len = size + 8;
 	memset (&m, 0, sizeof(m));
 	m.msg_iov = iov;
@@ -5336,11 +5345,52 @@ zebra_send_icmp_lazy(char *dst, int count, unsigned long size)
 	m.msg_namelen = sizeof(whereto);
 
 	do {
+		/* send icmp echo req */
+		iov[0].iov_base = sbuf;
+		iov[0].iov_len = sizeof(sbuf);
 		ret = sendmsg(icmp_sock, &m, 0);
 		if (ret < 0) {
 			zlog_warn ("sendmsg err %s", strerror(errno));
 		}
 		icmph->un.echo.sequence = htons(ntx++);
+#if 0
+		/* wait for echo rep for 1 sec */
+		fd_set readfd;
+		struct timeval to = {1, 0};
+
+		FD_ZERO(&readfd);
+		FD_SET(icmp_sock, &readfd);
+		ret = select(icmp_sock + 1, &readfd, NULL, NULL, &to);
+		/* nothing recved, then continue */
+		if (ret <= 0) {
+			perror("select");
+			continue;
+		}
+
+		iov[0].iov_base = rbuf;
+		iov[0].iov_len = sizeof(rbuf);
+		ret = recvmsg(icmp_sock, &m, 0);
+
+		if (ret < 0) {
+			perror("recvmsg");
+			continue;
+		}
+		struct iphdr *ip = (struct iphdr *)rbuf;
+		icmph = (struct icmphdr *)(rbuf + ip->ihl*4);
+
+		zlog_info ("ICMP type=%d", icmph->type);
+		switch (icmph->type) {
+		case ICMP_SOURCE_QUENCH:
+			zlog_info ("ICMP_SOURCE_QUENCH recvd");
+			/* XXX: should check from */
+			break;
+		default:
+			break;
+		}
+#endif
+		/* XXX: it's not cool atall but for SOURCE_QUENCH test... */
+		usleep(10 * 1000 + delta);
+		delta += 300;
 	} while (--count);
 
 	close(icmp_sock);
