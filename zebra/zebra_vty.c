@@ -5166,6 +5166,7 @@ DEFUN (show_ipv6_route_summary_prefix_vrf_all,
   return CMD_SUCCESS;
 }
 
+#ifdef __linux__
 DEFUN (clear_arp_cache_interface,
        clear_arp_cache_interface_cmd,
        "clear arp-cache interface INTERFACE",
@@ -5410,6 +5411,7 @@ DEFUN (ping,
   zebra_send_icmp_lazy((char *)argv[0], atoi(argv[1]), atoi(argv[2]));
   return CMD_SUCCESS;
 }
+#endif
 
 /* Write IPv6 static route configuration. */
 static int
@@ -5775,8 +5777,10 @@ zebra_vty_init (void)
   install_element (VIEW_NODE, &show_ipv6_mroute_vrf_all_cmd);
   install_element (ENABLE_NODE, &show_ipv6_mroute_vrf_all_cmd);
 
+#ifdef __linux__
   install_element (ENABLE_NODE, &clear_arp_cache_interface_cmd);
   install_element (CONFIG_NODE, &arp_cmd);
   install_element (CONFIG_NODE, &no_arp_cmd);
   install_element (ENABLE_NODE, &ping_cmd);
+#endif
 }

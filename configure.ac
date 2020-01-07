@@ -1155,7 +1155,8 @@ AC_MSG_CHECKING(whether does this OS have IPv6 stack)
 dnl ---------
 dnl KAME IPv6
 dnl ---------
-  if grep WIDE /usr/include/netinet6/in6.h >/dev/null 2>&1; then
+  if grep WIDE /home/tazaki/work/frankenlibc-netbsd/rump/include/netinet6/in6.h >/dev/null 2>&1; then
+  #if grep WIDE /usr/include/netinet6/in6.h >/dev/null 2>&1; then
     AC_DEFINE(KAME,1,KAME IPv6)
     AC_MSG_RESULT(KAME)
 dnl ------------------------------------

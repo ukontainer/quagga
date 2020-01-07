@@ -34,7 +34,7 @@ AM_CFLAGS = $(WERROR)
 
 sbin_PROGRAMS = zebra
 
-noinst_PROGRAMS = testzebra
+#noinst_PROGRAMS = testzebra
 
 zebra_SOURCES = \
 	zserv.c main.c interface.c connected.c zebra_rib.c zebra_routemap.c \
